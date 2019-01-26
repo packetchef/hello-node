@@ -1,0 +1,102 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hello-node-user
+  namespace: app-dev
+---
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: hello-node-psp
+  namespace: app-dev
+spec:
+  privileged: false
+  # Required to prevent escalations to root.
+  allowPrivilegeEscalation: false
+  runAsUser:
+    # Require the container to run without root privileges.
+    rule: 'RunAsAny'
+  seLinux:
+    # This policy assumes the nodes are using AppArmor rather than SELinux.
+    rule: 'RunAsAny'
+  supplementalGroups:
+    rule: 'RunAsAny'
+  fsGroup:
+    rule: 'RunAsAny'
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: psp:hello-node
+  namespace: app-dev
+rules:
+- apiGroups:
+  - extensions
+  resourceNames:
+  - hello-node
+  resources:
+  - podsecuritypolicies
+  verbs:
+  - use
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: psp:hello-node
+  namespace: app-dev
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: psp:hello-node
+subjects:
+- kind: ServiceAccount
+  name: hello-node-user
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    name: hello-node
+  name: hello-node
+  namespace: app-dev
+spec:
+  ports:
+    - port: 8888
+  selector:
+    app: hello-node
+  type: NodePort
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello-node
+  namespace: app-dev
+spec:
+  selector:
+    matchLabels:
+      app: hello-node
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: hello-node
+    spec:
+      serviceAccountName: hello-node-user
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - hello-node
+            topologyKey: "kubernetes.io/hostname"
+      containers:
+      - name: hello-node
+        image: packetchef/hello-node:1.0
+        ports:
+        - containerPort: 8888
+
